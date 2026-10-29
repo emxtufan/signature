@@ -1,0 +1,6 @@
+_old/
+server/
+node_modules/
+dist/
+*.zip
+.env*
