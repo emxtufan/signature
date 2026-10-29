@@ -16,41 +16,42 @@ const json = (body: unknown, status = 200) =>
     headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' },
   });
 
-async function readState(request: Request): Promise<string | Response> {
-  const body = await request.text();
-  if (body.length > MAX_BYTES) return json({ error: 'Prea mare.' }, 413);
+// Auth check plus a readable error instead of FUNCTION_INVOCATION_FAILED (e.g. Blob store not connected).
+async function guarded(request: Request, fn: () => Promise<Response>): Promise<Response> {
   try {
-    const state = JSON.parse(body);
-    if (!Array.isArray(state?.employees)) throw new Error();
-    return JSON.stringify(state);
-  } catch {
-    return json({ error: 'Date invalide.' }, 400);
+    if (!(await isAuthenticated(request))) return json({ error: 'Neautentificat.' }, 401);
+    return await fn();
+  } catch (err) {
+    console.error('[api/state]', err);
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
 }
 
-export default async function handler(request: Request) {
-  if (!(await isAuthenticated(request))) return json({ error: 'Neautentificat.' }, 401);
+async function save(request: Request, path: string, overwrite: boolean): Promise<Response> {
+  const body = await request.text();
+  if (body.length > MAX_BYTES) return json({ error: 'Prea mare.' }, 413);
+  let state: unknown;
+  try {
+    state = JSON.parse(body);
+  } catch {
+    return json({ error: 'Date invalide.' }, 400);
+  }
+  if (!Array.isArray((state as { employees?: unknown })?.employees)) return json({ error: 'Date invalide.' }, 400);
 
-  if (request.method === 'GET') {
+  await put(path, JSON.stringify(state), { access: 'private', allowOverwrite: overwrite, contentType: 'application/json' });
+  return json({ ok: true });
+}
+
+export const GET = (request: Request) =>
+  guarded(request, async () => {
     const result = await get(STATE_PATH, { access: 'private', useCache: false });
     if (result?.statusCode !== 200) return json({});
     return new Response(result.stream, {
       headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' },
     });
-  }
+  });
 
-  if (request.method === 'PUT' || request.method === 'POST') {
-    const state = await readState(request);
-    if (state instanceof Response) return state;
-    const path =
-      request.method === 'PUT' ? STATE_PATH : `arhiva/${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    await put(path, state, {
-      access: 'private',
-      allowOverwrite: request.method === 'PUT',
-      contentType: 'application/json',
-    });
-    return json({ ok: true });
-  }
+export const PUT = (request: Request) => guarded(request, () => save(request, STATE_PATH, true));
 
-  return json({ error: 'Metodă nepermisă.' }, 405);
-}
+export const POST = (request: Request) =>
+  guarded(request, () => save(request, `arhiva/${new Date().toISOString().replace(/[:.]/g, '-')}.json`, false));
