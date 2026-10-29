@@ -1,9 +1,13 @@
-import { next } from '@vercel/functions';
 import { COOKIE, credentials, isAuthenticated, sessionToken } from './auth';
 
 // Vercel Routing Middleware: shows a login page until the visitor signs in.
+// Kept dependency-free on purpose: @vercel/functions pulls in Node-only modules (http, net, tls),
+// which can fail to load in the middleware runtime.
 
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+
+// Same as next() from @vercel/functions: let the request continue.
+const next = () => new Response(null, { headers: { 'x-middleware-next': '1' } });
 
 const loginPage = (error: boolean, status: number) =>
   new Response(
@@ -37,6 +41,15 @@ const loginPage = (error: boolean, status: number) =>
   );
 
 export default async function middleware(request: Request) {
+  try {
+    return await handle(request);
+  } catch (err) {
+    console.error('[middleware]', err);
+    return new Response(`Eroare la autentificare: ${err instanceof Error ? err.message : String(err)}`, { status: 500 });
+  }
+}
+
+async function handle(request: Request) {
   const { user, password } = credentials();
   if (!password) return new Response('APP_PASSWORD nu este setat în Vercel.', { status: 500 });
 
