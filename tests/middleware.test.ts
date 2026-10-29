@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import middleware from './middleware';
+import middleware from '../middleware';
 
 process.env.APP_USER = 'admin';
 process.env.APP_PASSWORD = 'secret';

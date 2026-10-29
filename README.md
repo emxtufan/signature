@@ -12,10 +12,14 @@ npm run dev
 
 Pornește la http://localhost:5173 (și pe rețeaua locală, la IP-ul calculatorului).
 
+Local, semnăturile se păstrează doar în browser (localStorage).
+
 ## Vercel
 
-1. `vercel login`
-2. `vercel env add APP_PASSWORD production` (parola cerută la intrare)
-3. `vercel deploy --prod`
+1. Importă repo-ul în Vercel (Add New → Project).
+2. Settings → Environment Variables: `APP_PASSWORD` (obligatoriu) și `APP_USER` (opțional, implicit `admin`).
+3. Storage → Create → Blob → acces **Private** → conectează-l la proiect.
+4. Redeploy.
 
-Parola este verificată de `middleware.ts` (la login, utilizatorul poate fi orice).
+- `middleware.ts` afișează pagina de login și pune cookie-ul de sesiune (`auth.ts`).
+- `api/state.ts` salvează sesiunea curentă în `state.json` din Blob; la „Sesiune nouă” sesiunea veche ajunge în `arhiva/`.

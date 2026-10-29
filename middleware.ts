@@ -1,23 +1,9 @@
 import { next } from '@vercel/functions';
+import { COOKIE, credentials, isAuthenticated, sessionToken } from './auth';
 
 // Vercel Routing Middleware: shows a login page until the visitor signs in.
-// Credentials come from the Vercel environment variables APP_USER (default "admin") and APP_PASSWORD.
-// The session cookie holds an HMAC derived from the password, so changing the password logs everyone out.
 
-const COOKIE = 'pv_auth';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-
-async function sessionToken(user: string, password: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`pv-session:${user}`));
-  return Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function getCookie(request: Request, name: string): string | null {
-  const match = (request.headers.get('cookie') || '').match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
-  return match ? match[1] : null;
-}
 
 const loginPage = (error: boolean, status: number) =>
   new Response(
@@ -51,11 +37,9 @@ const loginPage = (error: boolean, status: number) =>
   );
 
 export default async function middleware(request: Request) {
-  const password = process.env.APP_PASSWORD;
-  const user = process.env.APP_USER || 'admin';
+  const { user, password } = credentials();
   if (!password) return new Response('APP_PASSWORD nu este setat în Vercel.', { status: 500 });
 
-  const token = await sessionToken(user, password);
   const url = new URL(request.url);
 
   if (url.pathname === '/login' && request.method === 'POST') {
@@ -65,11 +49,11 @@ export default async function middleware(request: Request) {
       status: 303,
       headers: {
         location: '/',
-        'set-cookie': `${COOKIE}=${token}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax`,
+        'set-cookie': `${COOKIE}=${await sessionToken(user, password)}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax`,
       },
     });
   }
 
-  if (getCookie(request, COOKIE) === token) return next();
+  if (await isAuthenticated(request)) return next();
   return loginPage(false, 401);
 }

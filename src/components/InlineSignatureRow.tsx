@@ -8,6 +8,7 @@ interface InlineSignatureRowProps {
   lastName: string;
   firstName: string;
   signatureBase64?: string;
+  timestamp?: string;
   onSaveSignature: (id: string, base64: string) => void;
   onClearSignature: (id: string) => void;
   onDelete?: (id: string) => void;
@@ -19,6 +20,7 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
   lastName,
   firstName,
   signatureBase64,
+  timestamp,
   onSaveSignature,
   onClearSignature,
   onDelete,
@@ -124,7 +126,9 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
           {index + 1}. {lastName} {firstName}
         </div>
         <div className={`text-xs ${signatureBase64 ? 'text-green-700' : 'text-neutral-500'}`}>
-          {signatureBase64 ? 'Semnat' : 'Nesemnat'}
+          {signatureBase64
+            ? `Semnat${timestamp ? ` la ${new Date(timestamp).toLocaleString('ro-RO', { dateStyle: 'short', timeStyle: 'short' })}` : ''}`
+            : 'Nesemnat'}
         </div>
       </div>
 

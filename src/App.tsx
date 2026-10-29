@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Packer } from 'docx';
 import { EmployeeRecord, SessionData, buildDocx } from './utils/docxEngine';
@@ -22,11 +22,81 @@ interface GenerationResult {
 
 const inputClass = 'px-2 py-1 border border-neutral-300 rounded-md text-sm bg-white';
 
+// The session is saved on the server (api/state.ts, Vercel Blob) and mirrored in localStorage.
+// `npm run dev` has no api/, so locally only localStorage is used.
+const USE_SERVER = !import.meta.env.DEV;
+const STORAGE_KEY = 'pv-gdpr';
+const today = () => new Date().toISOString().slice(0, 10);
+
+interface SavedState {
+  employees?: EmployeeRecord[];
+  regNumber?: string;
+  trainingDate?: string;
+}
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'offline';
+
+function loadLocal(): SavedState {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+const postState = (method: 'PUT' | 'POST', state: SavedState) =>
+  fetch('/api/state', {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state),
+    keepalive: true,
+  }).then((res) => res.ok);
+
 export default function App() {
-  const [employees, setEmployees] = useState<EmployeeRecord[]>(INITIAL_EMPLOYEES);
-  const [regNumber, setRegNumber] = useState('PV-GDPR-2026/01');
-  const [trainingDate, setTrainingDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [local] = useState(loadLocal);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>(local.employees ?? INITIAL_EMPLOYEES);
+  const [regNumber, setRegNumber] = useState(local.regNumber ?? 'PV-GDPR-2026/01');
+  const [trainingDate, setTrainingDate] = useState(local.trainingDate ?? today());
   const [newEmployeeName, setNewEmployeeName] = useState('');
+  // Bumped on "Sesiune nouă" so the signature canvases remount empty.
+  const [sessionKey, setSessionKey] = useState(0);
+  const [loaded, setLoaded] = useState(!USE_SERVER);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+
+  useEffect(() => {
+    if (!USE_SERVER) return;
+    fetch('/api/state', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((state: SavedState) => {
+        if (Array.isArray(state.employees)) {
+          setEmployees(state.employees);
+          setRegNumber(state.regNumber ?? '');
+          setTrainingDate(state.trainingDate ?? today());
+        }
+      })
+      // Never push local data over the server copy we could not read.
+      .catch(() => setSaveStatus('offline'))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const state = { employees, regNumber, trainingDate };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      if (!USE_SERVER) setSaveStatus('error');
+    }
+    if (!USE_SERVER || saveStatus === 'offline') return;
+
+    setSaveStatus('saving');
+    const timer = setTimeout(() => {
+      postState('PUT', state)
+        .catch(() => false)
+        .then((ok) => setSaveStatus(ok ? 'saved' : 'error'));
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [employees, regNumber, trainingDate, loaded]);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
@@ -64,6 +134,23 @@ export default function App() {
     );
 
   const handleDeleteEmployee = (id: string) => updateEmployees((prev) => prev.filter((emp) => emp.id !== id));
+
+  const handleNewSession = async () => {
+    if (!window.confirm('Ștergeți toate semnăturile și începeți o sesiune nouă?')) return;
+    // Keep a copy of the finished session before clearing it.
+    if (USE_SERVER) {
+      const ok = await postState('POST', { employees, regNumber, trainingDate }).catch(() => false);
+      if (!ok) {
+        setErrorMessage('Sesiunea curentă nu a putut fi arhivată pe server. Semnăturile nu au fost șterse.');
+        return;
+      }
+    }
+    updateEmployees((prev) =>
+      prev.map((emp) => ({ ...emp, signatureBase64: undefined, status: 'pending', timestamp: undefined }))
+    );
+    setTrainingDate(today());
+    setSessionKey((k) => k + 1);
+  };
 
   // Both files are built in the browser, so signatures never leave the device.
   const handleGenerate = async () => {
@@ -147,19 +234,40 @@ export default function App() {
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
             <h2 className="font-semibold">Semnături</h2>
-            <span className="text-sm text-neutral-500">
-              {signedCount} din {employees.length}
-            </span>
+            <div className="flex items-baseline gap-4 text-sm">
+              {saveStatus === 'saving' && <span className="text-neutral-500">Se salvează…</span>}
+              {saveStatus === 'saved' && <span className="text-green-700">Salvat</span>}
+              <span className="text-neutral-500">
+                {signedCount} din {employees.length}
+              </span>
+              <button type="button" className="underline text-neutral-600" onClick={handleNewSession}>
+                Sesiune nouă
+              </button>
+            </div>
           </div>
 
-          {employees.map((emp, index) => (
+          {saveStatus === 'error' && (
+            <p className="text-sm text-red-700">
+              Semnăturile nu au putut fi salvate. Generați documentul înainte de a închide pagina.
+            </p>
+          )}
+          {saveStatus === 'offline' && (
+            <p className="text-sm text-red-700">
+              Datele nu au putut fi încărcate de pe server, deci nu se salvează acolo. Reîncărcați pagina.
+            </p>
+          )}
+
+          {!loaded && <p className="text-sm text-neutral-500">Se încarcă…</p>}
+
+          {loaded && employees.map((emp, index) => (
             <InlineSignatureRow
-              key={emp.id}
+              key={`${emp.id}-${sessionKey}`}
               index={index}
               id={emp.id}
               lastName={emp.lastName}
               firstName={emp.firstName}
               signatureBase64={emp.signatureBase64}
+              timestamp={emp.timestamp}
               onSaveSignature={handleSaveSignature}
               onClearSignature={handleClearSignature}
               onDelete={employees.length > 1 ? handleDeleteEmployee : undefined}
