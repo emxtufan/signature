@@ -1,5 +1,5 @@
 import { get, put } from '@vercel/blob';
-import { isAuthenticated } from '../auth';
+import { isAuthenticated } from '../auth.js';
 
 // Current session (names + signatures) lives in one private Vercel Blob JSON file.
 // GET   /api/state  -> the saved state, or {} if nothing is saved yet

@@ -1,8 +1,7 @@
-import { COOKIE, credentials, isAuthenticated, sessionToken } from './auth';
+import { COOKIE, credentials, isAuthenticated, sessionToken } from './auth.js';
 
 // Vercel Routing Middleware: shows a login page until the visitor signs in.
-// Kept dependency-free on purpose: @vercel/functions pulls in Node-only modules (http, net, tls),
-// which can fail to load in the middleware runtime.
+// Vercel runs this file (and api/) as plain Node ESM without bundling, so relative imports need the .js extension.
 
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
