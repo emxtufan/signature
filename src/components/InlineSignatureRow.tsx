@@ -28,6 +28,8 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const [hasDrawn, setHasDrawn] = useState(Boolean(signatureBase64));
+  // Canvas is locked until "Semnează" is pressed, so scrolling over it can't leave marks.
+  const [editing, setEditing] = useState(false);
 
   // Size the canvas once, at device pixel ratio, and redraw an existing signature.
   useEffect(() => {
@@ -63,7 +65,7 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (!editing || (e.button !== 0 && e.pointerType === 'mouse')) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
@@ -91,12 +93,18 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
     lastPointRef.current = p;
   };
 
-  // Save a cropped PNG of the signature after every stroke.
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!lastPointRef.current || !canvas) return;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     lastPointRef.current = null;
+  };
+
+  // Save a cropped PNG of the signature, then lock the canvas again.
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setEditing(false);
 
     const ctx = canvas.getContext('2d')!;
     const box = computeBoundingBox(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, 8);
@@ -133,12 +141,12 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
       </div>
 
       <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-        <div className="relative flex-1 h-32 border border-neutral-300 rounded-md overflow-hidden select-none">
+        <div className={`relative flex-1 h-32 border rounded-md overflow-hidden select-none ${editing ? 'border-blue-500 ring-2 ring-blue-200' : 'border-neutral-300'}`}>
           <canvas
             ref={canvasRef}
             aria-label={`Semnătura pentru ${lastName} ${firstName}`}
-            className="w-full h-full block cursor-crosshair"
-            style={{ touchAction: 'none' }}
+            className={`w-full h-full block ${editing ? 'cursor-crosshair' : ''}`}
+            style={{ touchAction: editing ? 'none' : 'auto' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -146,12 +154,21 @@ export const InlineSignatureRow: React.FC<InlineSignatureRowProps> = ({
           />
           {!hasDrawn && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center text-xs text-neutral-400">
-              Semnați aici
+              {editing ? 'Semnați aici' : 'Apăsați „Semnează” pentru a semna'}
             </div>
           )}
         </div>
 
         <div className="flex sm:flex-col gap-2">
+          {editing ? (
+            <Button type="button" size="sm" onClick={handleSave}>
+              Salvează
+            </Button>
+          ) : (
+            <Button type="button" size="sm" onClick={() => setEditing(true)}>
+              Semnează
+            </Button>
+          )}
           <Button type="button" variant="outline" size="sm" onClick={handleClear}>
             Șterge semnătura
           </Button>
